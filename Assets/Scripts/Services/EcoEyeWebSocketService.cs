@@ -34,12 +34,30 @@ public class EcoEyeWebSocketService : IDisposable
 
         string address = $"ws://{serverIpAddress}:{port}/ws";
 
-        socket = new ClientWebSocket();
+        ClientWebSocket newSocket = new ClientWebSocket();
+        socket = newSocket;
 
-        await socket.ConnectAsync(
-            new Uri(address),
-            cancellationToken
-        );
+        try
+        {
+            await newSocket.ConnectAsync(
+                new Uri(address),
+                cancellationToken
+            );
+        }
+        catch
+        {
+            // Un ClientWebSocket fallito non può essere riutilizzato:
+            // lo eliminiamo così un nuovo tentativo può crearne un altro.
+            newSocket.Dispose();
+            if (socket == newSocket)
+            {
+                socket = null;
+            }
+            throw;
+        }
+
+        Debug.Log("[EcoEye WS] Handshake completato. Stato socket: " +
+          newSocket.State);
     }
 
     public async Task SendMessageAsync(
@@ -79,6 +97,35 @@ public class EcoEyeWebSocketService : IDisposable
             Debug.Log("Errore nell'inivio del messaggio" + e.Message);
         }
     }
+
+    public async Task SendAudioPcmAsync(
+        byte[] audio_pcm,
+        CancellationToken cancellationToken
+    )
+    {
+        try
+        {
+            if (!isConnected)
+            {
+                throw new InvalidOperationException("WebSocket non connesso!");
+                
+            }
+
+            await socket.SendAsync(
+                new ArraySegment<byte>(audio_pcm),
+                WebSocketMessageType.Binary,
+                true,
+                cancellationToken
+            );
+            
+        }catch(Exception e)
+        {
+            Debug.LogError("Errore nell invio dell' audio pcm " + e.Message);
+        }
+        
+    }
+
+
 
     public async Task ReceiveMessageAsync(
         CancellationToken cancellationToken
@@ -127,6 +174,8 @@ public class EcoEyeWebSocketService : IDisposable
         }
         
     }
+
+
 
     public void Dispose()
     {

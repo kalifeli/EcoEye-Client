@@ -17,18 +17,40 @@ public class EcoEyeViewModel: IDisposable
         this.service.MessageReceived += OnMessageReceived;
     }
 
-    public async Task ConnectAsync(string ipAddress, int port)
+    public async Task<bool> ConnectAsync(string ipAddress, int port, TimeSpan timeout)
     {
+        cancellation?.Dispose();
         cancellation = new CancellationTokenSource();
 
-        SetSubtitle("Connessione in corso...");
+        SetSubtitle($"Connessione a {ipAddress}:{port}...");
 
-        await service.ConnectAsync(ipAddress,port,cancellation.Token);
+        // Token che scade dopo "timeout" oppure quando il ViewModel viene chiuso.
+        using CancellationTokenSource timeoutCts =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
+        timeoutCts.CancelAfter(timeout);
+
+        try
+        {
+            await service.ConnectAsync(ipAddress, port, timeoutCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+        {
+            Debug.LogWarning($"[ViewModel] Timeout: {ipAddress}:{port} non risponde entro {timeout.TotalSeconds} s");
+            SetSubtitle($"Server {ipAddress}:{port} non risponde");
+            return false;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[ViewModel] Connessione a {ipAddress}:{port} fallita: {e.Message}");
+            SetSubtitle($"Connessione a {ipAddress}:{port} fallita");
+            return false;
+        }
 
         SetSubtitle("Connesso. In attesa di una conversazione");
 
         ricezione = ReceiveAsync(); // chiamato senza await perchè è un'operazione che dura per tutta la durante della connessione
 
+        return true;
     }
 
     public async Task SendPingAsync()
@@ -86,6 +108,7 @@ public class EcoEyeViewModel: IDisposable
 
         }else if(messaggio.type == EcoEyeMessageType.Pong){
             SetSubtitle(messaggio.content);
+            Debug.Log("[WebSocket] Rx: Messaggio di PONG arrivato correttamente");
         }
         else if(messaggio.type == EcoEyeMessageType.Error)
         {

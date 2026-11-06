@@ -19,7 +19,8 @@ public class SubtitlesDisplay : MonoBehaviour
             return; // serve per interrompere l'esecuzione del metodo corrente 
         }
 
-        subtitleText.richText = false; 
+        subtitleText.richText = false;
+        subtitleText.raycastTarget = false;
 
         ShowSubtitle(waitingMessage);
     }
