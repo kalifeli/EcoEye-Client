@@ -7,7 +7,7 @@ public class EcoEyeRecordController : MonoBehaviour
 
     private EcoEyeRecordService recordService;
 
-    private EcoEyePcmConverter pcmConverter;
+    private EcoEyeAudioConverter pcmConverter;
 
     private PermissionCallbacks permissionCallbacks;
 
@@ -15,10 +15,12 @@ public class EcoEyeRecordController : MonoBehaviour
 
     public event Action<byte[]> PcmConversionAvailable;
 
+    public event Action RecordingStarted;
+
     void Awake()
     {
         recordService = new EcoEyeRecordService();
-        pcmConverter = new EcoEyePcmConverter();
+        pcmConverter = new EcoEyeAudioConverter();
         permissionCallbacks = new PermissionCallbacks(); // oggetto che contiene degli eventi
 
         recordService.SamplesAvailable += OnSamplesAvailable;
@@ -36,9 +38,34 @@ public class EcoEyeRecordController : MonoBehaviour
     
     }
 
+    // Funzione che avvia il microfono
+    public void StartRecording()
+    {
+        if (recordService.IsRecording)
+        {
+            return;
+        }
+
+        pcmConverter.Reset();
+        recordService.StartRecording();
+
+        if (recordService.SampleRate != 48000 ||
+            recordService.Channels != 2)
+        {
+            recordService.StopRecording();
+
+            throw new InvalidOperationException(
+                "Il convertitore richiede audio stereo a 48000 Hz."
+            );
+        }
+
+        RecordingStarted?.Invoke();
+    }
+
+    // Funzione che controlla i permessi e avvia l'acquisizione
     public void StartAcquisition()
     {
-        Debug.Log("[Record] Richiesta di avvio acquisizione ricevuta.");
+        Debug.Log("[RecordController] Richiesta di avvio acquisizione ricevuta.");
 
         // Se l'acquisizione è già richiesta o in corso, non facciamo nulla.
         if (acquisitionRequested || recordService.IsRecording)
@@ -67,6 +94,23 @@ public class EcoEyeRecordController : MonoBehaviour
     #endif
     }
 
+    public void StopRecording()
+    {
+        acquisitionRequested = false;
+
+        Debug.Log("[RecordController] Richiesta di termine acquisizione ricevuta.");
+
+        try
+        {
+            recordService.ReadAvailableSamples();
+        }
+        finally
+        {
+            recordService.StopRecording();
+        }
+        
+    }
+
 
     private void OnPermissionGranted(string permission)
     {
@@ -93,7 +137,6 @@ public class EcoEyeRecordController : MonoBehaviour
         {
             PcmConversionAvailable?.Invoke(audio_pcm);
         }
-        
     }
 
 
@@ -103,21 +146,22 @@ public class EcoEyeRecordController : MonoBehaviour
 
         if (acquisitionRequested && !recordService.IsRecording)
         {
-
             try
             {
-                
-                acquisitionRequested = false; // questo permette ad Update di chiamare solo una volta StartRecording() e non una volta ogni frame
+                acquisitionRequested = false;
 
-                pcmConverter.Reset();
+                StartRecording();
 
-                recordService.StartRecording();
-            
-                Debug.Log("[EcoEyeRecordController] Registrazione avviata.");
+                Debug.Log(
+                    "[EcoEyeRecordController] Registrazione avviata."
+                );
             }
             catch (Exception e)
             {
-                Debug.LogError("[EcoEyeRecordController] Errore durante l'avvio: " + e.Message);
+                Debug.LogError(
+                    "[EcoEyeRecordController] Errore durante l'avvio: "
+                    + e.Message
+                );
             }
         }
 
@@ -126,6 +170,7 @@ public class EcoEyeRecordController : MonoBehaviour
             recordService.ReadAvailableSamples();
         }
     }
+
 
     public void OnDestroy()
     {
