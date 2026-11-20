@@ -93,9 +93,13 @@ public class EcoEyeViewModel: IDisposable
         {
             Debug.LogWarning("[ViewModel] Rx: messaggio non valido");
             return;
-        }else if(messaggio.type == EcoEyeMessageType.Transcription)
+        }else if(
+            messaggio.type == EcoEyeMessageType.Transcription ||
+            messaggio.type == EcoEyeMessageType.TranscriptionFinal
+        )
         {
             SetSubtitle(messaggio.content);
+            
         }else if(messaggio.type == EcoEyeMessageType.Ping)
         {
             Debug.Log("[ViewModel] Pong ricevuto: il server risponde");

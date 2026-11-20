@@ -1,18 +1,21 @@
 using System;
+using System.Collections.Concurrent;
 using UnityEngine.XR.MagicLeap;
 
 public sealed class EcoEyeRecordService : IDisposable
 {
-    private const int ReadBufferSize = 4096;
     private const int BufferLenghtSeconds = 10;
 
     private readonly MLAudioInput.MicCaptureType captureType = MLAudioInput.MicCaptureType.WorldCapture;
     
     private MLAudioInput.BufferClip audioBuffer;
 
-    private readonly float[] readBuffer = new float[ReadBufferSize];
+    // Coda FIFO che mantiene i blocchi audio in attesa di elaborazione.
+    private ConcurrentQueue<float[]> pendingSamples = new ConcurrentQueue<float[]>();
 
-    private int readPosition = 0;
+    // Evento che mantiene la funzione di callback da eseguire a seguito dell'aggiunta di un nuovo blocco audio
+    private Action<float[]> samplesCallback;
+
 
     public event Action<float[], int> SamplesAvailable;
 
@@ -39,42 +42,33 @@ public sealed class EcoEyeRecordService : IDisposable
         SampleRate = MLAudioInput.GetSampleRate(captureType);
         Channels = MLAudioInput.GetChannels(captureType);
 
-        readPosition = 0;
+        var sessionQueue = new ConcurrentQueue<float[]>();
+        pendingSamples = sessionQueue;
+
+        samplesCallback = samples =>
+        {
+            float[] copy = (float[])samples.Clone();
+            sessionQueue.Enqueue(copy);
+        };
 
         audioBuffer = new MLAudioInput.BufferClip(
             captureType,
             BufferLenghtSeconds,
             SampleRate
         );
+
+        audioBuffer.OnReceivedSamples += samplesCallback;
     }
 
     public int ReadAvailableSamples()
     {
-        if (!IsRecording)
+       int totalSamplesRead = 0;
+
+       while(pendingSamples.TryDequeue(out float[] samples))
         {
-            return 0;
-        }
+            totalSamplesRead += samples.Length;
 
-        int totalSamplesRead = 0;
-
-        while(IsRecording)
-        {
-            int count = audioBuffer.GetData(
-            readBuffer, 
-            readPosition, 
-            out int nextReadPosition
-            );
-
-            if(count <= 0)
-            {
-                break;
-            }
-
-            readPosition = nextReadPosition;
-
-            totalSamplesRead += count;
-
-            SamplesAvailable?.Invoke(readBuffer, count);
+            SamplesAvailable?.Invoke(samples, samples.Length);
         }
 
         return totalSamplesRead;
@@ -87,11 +81,22 @@ public sealed class EcoEyeRecordService : IDisposable
             return;
         }
 
-        audioBuffer.Dispose();
-        audioBuffer = null;
 
-        readPosition = 0;
+        audioBuffer.OnReceivedSamples -= samplesCallback;
+
+        try
+        {
+            audioBuffer.Dispose();
+        }
+        finally
+        {
+            audioBuffer = null;
+            samplesCallback = null;
+        }
+
+        ReadAvailableSamples();
     }
+
     public void Dispose()
     {
         StopRecording();

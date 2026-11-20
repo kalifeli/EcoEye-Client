@@ -4,11 +4,16 @@ using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text;
+using System.IO;
 
 public class EcoEyeWebSocketService : IDisposable
 {
-    private const int BufferSize = 4096;
+    
     private ClientWebSocket socket;
+
+    private const int BufferSize = 4096;
+
+    private readonly SemaphoreSlim semaphore = new SemaphoreSlim(1,1);
 
     public event Action<EcoEyeMessage> MessageReceived;
 
@@ -46,8 +51,6 @@ public class EcoEyeWebSocketService : IDisposable
         }
         catch
         {
-            // Un ClientWebSocket fallito non può essere riutilizzato:
-            // lo eliminiamo così un nuovo tentativo può crearne un altro.
             newSocket.Dispose();
             if (socket == newSocket)
             {
@@ -71,6 +74,11 @@ public class EcoEyeWebSocketService : IDisposable
             throw new ArgumentException(nameof(messaggio));
         }
 
+        string messaggio_json = JsonUtility.ToJson(messaggio);
+
+        byte[] dati = Encoding.UTF8.GetBytes(messaggio_json);
+
+        await semaphore.WaitAsync(cancellationToken);
 
         try
         {
@@ -79,22 +87,18 @@ public class EcoEyeWebSocketService : IDisposable
                 throw new InvalidOperationException("WebSocket non connesso!");
             }
 
-            string messaggio_json = JsonUtility.ToJson(messaggio);
-
-            byte[] dati = Encoding.UTF8.GetBytes(messaggio_json);
-
             await socket.SendAsync(
             new ArraySegment<byte>(dati),
             WebSocketMessageType.Text,                
             true,
             cancellationToken
             );
-
-             Debug.Log("[WebSocket] Tx: " + JsonUtility.ToJson(messaggio));
+            
+            Debug.Log("[WebSocket] Tx: " + JsonUtility.ToJson(messaggio));
         }
-        catch (Exception e)
+        finally
         {
-            Debug.Log("Errore nell'inivio del messaggio" + e.Message);
+            semaphore.Release();
         }
     }
 
@@ -103,6 +107,8 @@ public class EcoEyeWebSocketService : IDisposable
         CancellationToken cancellationToken
     )
     {
+
+        await semaphore.WaitAsync(cancellationToken);
         try
         {
             if (!isConnected)
@@ -118,9 +124,10 @@ public class EcoEyeWebSocketService : IDisposable
                 cancellationToken
             );
             
-        }catch(Exception e)
+        }
+        finally
         {
-            Debug.LogError("Errore nell invio dell' audio pcm " + e.Message);
+            semaphore.Release();
         }
         
     }
@@ -142,34 +149,42 @@ public class EcoEyeWebSocketService : IDisposable
 
         while(socket.State == WebSocketState.Open)
         {
-            StringBuilder risposta = new StringBuilder();
+            using(var messageBytes = new MemoryStream()){
 
-            WebSocketReceiveResult risultato;
+                WebSocketReceiveResult risultato;
 
-            do
-            {
-                risultato = await socket.ReceiveAsync(
-                    new ArraySegment<byte>(buffer),
-                    cancellationToken
-                );
-
-                if(risultato.MessageType != WebSocketMessageType.Text)
+                do
                 {
-                    Debug.LogWarning("[WebSocket] Messaggio non testuale");
-                    return;
-                }
+                    risultato = await socket.ReceiveAsync(
+                        new ArraySegment<byte>(buffer), // da riferimento allo stesso butter. Non ne copia quindi il contenuto.
+                        cancellationToken
+                    );
 
-                risposta.Append(Encoding.UTF8.GetString(buffer, 0, risultato.Count));
+                    if(risultato.MessageType == WebSocketMessageType.Close)
+                    {
+                        return;
+                    }
 
-            } while (!risultato.EndOfMessage);
+                    if(risultato.MessageType != WebSocketMessageType.Text)
+                    {
+                        throw new InvalidOperationException("Il server ha inviato un messaggio non testuale.");
+                    }
 
-            string json = risposta.ToString();
+                    messageBytes.Write(
+                        buffer,
+                        0,
+                        risultato.Count
+                    );
 
-            Debug.Log("[WebSocket] RX: " + json);
+                } while (!risultato.EndOfMessage);
 
-            EcoEyeMessage messaggio = JsonUtility.FromJson<EcoEyeMessage>(json);
+                string json_message = Encoding.UTF8.GetString(messageBytes.ToArray());
 
-            MessageReceived?.Invoke(messaggio);
+                EcoEyeMessage messaggio = JsonUtility.FromJson<EcoEyeMessage>(json_message);
+                
+                MessageReceived?.Invoke(messaggio);
+                
+            }
 
         }
         

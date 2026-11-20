@@ -131,7 +131,7 @@ public class EcoEyeRecordController : MonoBehaviour
     }
     private void OnSamplesAvailable(float[] samples, int count)
     {
-        byte[] audio_pcm = pcmConverter.Convert(samples,count);
+        byte[] audio_pcm = pcmConverter.Convert(samples, count);
 
         if(audio_pcm.Length > 0)
         {

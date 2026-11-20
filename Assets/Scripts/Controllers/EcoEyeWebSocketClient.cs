@@ -201,7 +201,7 @@ public class EcoEyeWebSocketClient : MonoBehaviour
 
         EcoEyeMessage audio_start = new EcoEyeMessage(
             type: EcoEyeMessageType.AudioStart,
-            content: "pcm_f32le;sample_rate=16000;channels=1" 
+            content: "pcm_f32le;sample_rate=48000;channels=1"
            );
 
         await service.SendMessageAsync(
