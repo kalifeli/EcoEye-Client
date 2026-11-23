@@ -109,6 +109,7 @@ public class EcoEyeWebSocketService : IDisposable
     {
 
         await semaphore.WaitAsync(cancellationToken);
+        
         try
         {
             if (!isConnected)

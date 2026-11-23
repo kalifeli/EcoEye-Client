@@ -185,13 +185,8 @@ public class EcoEyeWebSocketClient : MonoBehaviour
         SetButtonBehaviour(AcquisitionButtonState.NotAvailable);
     }
 
-    /// <summary>
-    /// Quanti secondi aspettare prima del tentativo successivo.
-    /// attempt = numero del tentativo appena fallito (1, 2, 3, ...).
-    /// </summary>
     private float GetRetryDelaySeconds(int attempt)
     {
-        // TODO(human): scegli la strategia di attesa tra un tentativo e l'altro.
         return 2f;
     }
 
